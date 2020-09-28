@@ -47,23 +47,41 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public ProductSearchResultDTO searchProduct(String type) {
-
-        List<ServiceInstance> instances = discoveryClient.getInstances("INVENTORY-SERVICE");
-        ServiceInstance serviceInstance = instances.get(0);
-        //String baseURL = "http://localhost:8081";
-        String baseURL = serviceInstance.getUri().toString();
-
-        String contextPath = "/api/inventory";
-
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).queryParam("prodtype", type);
-
         RestTemplate restTemplate = new RestTemplate();
-        ResponseEntity<List<ProductDTO>>  productList =
-                restTemplate.exchange(builder.toUriString(), HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
-
-        productList.getBody().stream().forEach(productDTO -> System.out.println(productDTO.getProductName()));
         ProductSearchResultDTO productSearchResult = new ProductSearchResultDTO();
+
+        // Get Products from Inventory Service
+        List<ServiceInstance> invInstances = discoveryClient.getInstances("INVENTORY-SERVICE");
+        ServiceInstance invServiceInstance = invInstances.get(0);
+
+        String invServiceURL = getServiceURL(
+                invServiceInstance.getUri().toString(),
+                "/api/inventory",
+                "QueryParam",
+                "prodtype",
+                type);
+
+        ResponseEntity<List<ProductDTO>>  productList =
+                restTemplate.exchange(invServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
+
         productSearchResult.setProducts(productList.getBody());
+
+        // Get Accessories from Recommendation Service
+        List<ServiceInstance> recInstances = discoveryClient.getInstances("RECOMMEND-SERVICE");
+        ServiceInstance recServiceInstance = recInstances.get(0);
+
+        String recServiceURL = getServiceURL(
+                recServiceInstance.getUri().toString(),
+                "api/recommand/accessories/",
+                "PathParam",
+                null,
+                type);
+
+        ResponseEntity<List<ProductDTO>> accessoryList =
+                restTemplate.exchange(recServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
+
+        productSearchResult.setAccessories(accessoryList.getBody());
+
         return productSearchResult;
     }
 
@@ -71,5 +89,16 @@ public class OrderServiceImpl implements OrderService {
         HttpHeaders headers = new HttpHeaders();
         headers.set("Accept", MediaType.APPLICATION_JSON_VALUE);
         return new HttpEntity<>(headers);
+    }
+
+
+    private String getServiceURL(String baseURL, String contextPath, String paramType, String paramName, String paramValue ) {
+        UriComponentsBuilder builder;
+        if("QueryParam".equals(paramType))
+            builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).queryParam(paramName, paramValue);
+        else
+            builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).path(paramValue);
+
+        return builder.toUriString();
     }
 }
