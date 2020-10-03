@@ -6,6 +6,15 @@ public class ProductDTO {
     private String productType;
     private String productAccessoryType;
 
+    public ProductDTO(){}
+
+    public ProductDTO(String name, String desc, String type, String accsType) {
+        this.productName = name;
+        this.productDescription = desc;
+        this.productType = type;
+        this.productAccessoryType = accsType;
+    }
+
     public String getProductName() {
         return productName;
     }

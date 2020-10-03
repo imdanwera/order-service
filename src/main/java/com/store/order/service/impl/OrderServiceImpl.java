@@ -1,5 +1,7 @@
 package com.store.order.service.impl;
 
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixProperty;
 import com.store.order.model.OrderDTO;
 import com.store.order.model.ProductDTO;
 import com.store.order.model.ProductSearchResultDTO;
@@ -17,12 +19,22 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class OrderServiceImpl implements OrderService {
 
+    private static List<ProductDTO> inventoryList = Arrays.asList(
+            new ProductDTO("Apple iPhone 7 plus", "Apple iPhone 7 plus", "MOBILE", null),
+            new ProductDTO("Apple iPhone XR", "Apple iPhone XR", "MOBILE", null),
+            new ProductDTO("SanDisk MicroSD", "SanDisk MicroSD", "MEMORY_CARD", "MOBILE"),
+            new ProductDTO("Anker Power Bank", "Anker Power Bank", "CHARGER", "MOBILE"));
+
     @Autowired
     private DiscoveryClient discoveryClient;
+
+    @Autowired
+    private RestTemplate restTemplate;
 
 
     @Override
@@ -46,11 +58,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ProductSearchResultDTO searchProduct(String type) {
-        RestTemplate restTemplate = new RestTemplate();
-        ProductSearchResultDTO productSearchResult = new ProductSearchResultDTO();
-
-        // Get Products from Inventory Service
+    @HystrixCommand(fallbackMethod = "getFallbackProducts", threadPoolKey = "productThreadPool",
+            commandProperties = {
+                    @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "3000"),
+                    @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "5"),
+                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "5"),
+                    @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "5000")
+            })
+    public List<ProductDTO> getProducts(String type) {
         List<ServiceInstance> invInstances = discoveryClient.getInstances("INVENTORY-SERVICE");
         ServiceInstance invServiceInstance = invInstances.get(0);
 
@@ -61,12 +76,15 @@ public class OrderServiceImpl implements OrderService {
                 "prodtype",
                 type);
 
-        ResponseEntity<List<ProductDTO>>  productList =
-                restTemplate.exchange(invServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
+        ResponseEntity<List<ProductDTO>> productList =
+                restTemplate.exchange(invServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {
+                });
+        return productList.getBody();
+    }
 
-        productSearchResult.setProducts(productList.getBody());
-
-        // Get Accessories from Recommendation Service
+    @Override
+    @HystrixCommand(fallbackMethod = "getFallbackAccessories" )
+    public List<ProductDTO> getAccessories(String type) {
         List<ServiceInstance> recInstances = discoveryClient.getInstances("RECOMMEND-SERVICE");
         ServiceInstance recServiceInstance = recInstances.get(0);
 
@@ -80,9 +98,20 @@ public class OrderServiceImpl implements OrderService {
         ResponseEntity<List<ProductDTO>> accessoryList =
                 restTemplate.exchange(recServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
 
-        productSearchResult.setAccessories(accessoryList.getBody());
+        return accessoryList.getBody();
+    }
 
-        return productSearchResult;
+    public List<ProductDTO> getFallbackAccessories(String type) {
+        return inventoryList.stream()
+                .filter(prd -> type.equals(prd.getProductAccessoryType()))
+                .collect(Collectors.toList());
+
+    }
+    public List<ProductDTO> getFallbackProducts(String type) {
+        return inventoryList.stream()
+                .filter(prd -> type.equals(prd.getProductType()))
+                .collect(Collectors.toList());
+
     }
 
     private HttpEntity<?> getHeader() {

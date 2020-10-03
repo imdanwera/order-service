@@ -1,5 +1,6 @@
 package com.store.order.controller;
 
+import com.netflix.ribbon.proxy.annotation.Hystrix;
 import com.store.order.model.ProductSearchResultDTO;
 import com.store.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +23,11 @@ public class OrderController {
 
     @RequestMapping(value = "/search", method = RequestMethod.GET)
     public ResponseEntity<ProductSearchResultDTO> searchProduct(@RequestParam("type") String type) {
-        ProductSearchResultDTO productSearchResult = orderService.searchProduct(type);
+        ProductSearchResultDTO productSearchResult = new ProductSearchResultDTO();
+
+        productSearchResult.setProducts(orderService.getProducts(type));
+        productSearchResult.setAccessories(orderService.getAccessories(type));
+
         return new ResponseEntity<ProductSearchResultDTO>(productSearchResult, HttpStatus.OK);
     }
 
