@@ -1,5 +1,5 @@
 plugins {
-	id 'org.springframework.boot' version '2.3.2.RELEASE'
+	id 'org.springframework.boot' version '2.1.2.RELEASE'
 	id 'io.spring.dependency-management' version '1.0.10.RELEASE'
 	id 'java'
 }
@@ -14,7 +14,7 @@ repositories {
 }
 
 ext {
-	set('springCloudVersion', "Hoxton.SR7")
+	set('springCloudVersion', "Greenwich.RELEASE")
 }
 
 dependencies {
@@ -25,6 +25,7 @@ dependencies {
 	implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
 	implementation 'org.springframework.cloud:spring-cloud-starter-netflix-hystrix'
 	implementation 'org.springframework.cloud:spring-cloud-starter-netflix-hystrix-dashboard'
+	implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 	testImplementation('org.springframework.boot:spring-boot-starter-test') {
 		exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
 	}

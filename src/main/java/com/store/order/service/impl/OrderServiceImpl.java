@@ -2,6 +2,7 @@ package com.store.order.service.impl;
 
 import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
 import com.netflix.hystrix.contrib.javanica.annotation.HystrixProperty;
+import com.store.order.client.InventoryFeignClient;
 import com.store.order.model.OrderDTO;
 import com.store.order.model.ProductDTO;
 import com.store.order.model.ProductSearchResultDTO;
@@ -9,16 +10,16 @@ import com.store.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
+import org.springframework.cloud.client.loadbalancer.LoadBalancerClient;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,6 +36,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RestTemplate restTemplate;
+
+    @Autowired
+    private InventoryFeignClient inventoryFeignClient;
 
 
     @Override
@@ -58,42 +62,36 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @HystrixCommand(fallbackMethod = "getFallbackProducts", threadPoolKey = "productThreadPool",
+    @HystrixCommand(fallbackMethod = "getFallbackProducts",
             commandProperties = {
                     @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "3000"),
                     @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "5"),
-                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "5"),
+                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "60"),
                     @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "5000")
             })
     public List<ProductDTO> getProducts(String type) {
-        List<ServiceInstance> invInstances = discoveryClient.getInstances("INVENTORY-SERVICE");
-        ServiceInstance invServiceInstance = invInstances.get(0);
-
-        String invServiceURL = getServiceURL(
-                invServiceInstance.getUri().toString(),
-                "/api/inventory",
-                "QueryParam",
-                "prodtype",
-                type);
-
-        ResponseEntity<List<ProductDTO>> productList =
-                restTemplate.exchange(invServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {
-                });
-        return productList.getBody();
+        List<ProductDTO> productList = inventoryFeignClient.getInventory(type);
+        return productList;
     }
 
     @Override
-    @HystrixCommand(fallbackMethod = "getFallbackAccessories" )
+    @HystrixCommand(fallbackMethod = "getFallbackAccessories",
+            commandProperties = {
+                    @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "3000"),
+                    @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "5"),
+                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "60"),
+                    @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "5000")
+            })
     public List<ProductDTO> getAccessories(String type) {
         List<ServiceInstance> recInstances = discoveryClient.getInstances("RECOMMEND-SERVICE");
         ServiceInstance recServiceInstance = recInstances.get(0);
 
+        Map<String,String> urlParam = new HashMap<>();
+        urlParam.put("type",type);
         String recServiceURL = getServiceURL(
                 recServiceInstance.getUri().toString(),
-                "api/recommand/accessories/",
-                "PathParam",
-                null,
-                type);
+                "api/recommand/accessories/{type}",
+                urlParam);
 
         ResponseEntity<List<ProductDTO>> accessoryList =
                 restTemplate.exchange(recServiceURL, HttpMethod.GET, getHeader(), new ParameterizedTypeReference<List<ProductDTO>>() {});
@@ -121,13 +119,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
 
-    private String getServiceURL(String baseURL, String contextPath, String paramType, String paramName, String paramValue ) {
-        UriComponentsBuilder builder;
-        if("QueryParam".equals(paramType))
-            builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).queryParam(paramName, paramValue);
-        else
-            builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).path(paramValue);
-
+    private String getServiceURL(String baseURL, String contextPath, Map<String,String> paramMap ) {
+        UriComponents builder = UriComponentsBuilder.fromHttpUrl(baseURL+contextPath).buildAndExpand(paramMap);
         return builder.toUriString();
     }
 }
